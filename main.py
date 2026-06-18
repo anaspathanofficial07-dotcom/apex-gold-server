@@ -304,3 +304,52 @@ def stats():
         "blocked": blocked,
         "expired": expired,
     }
+
+
+# ════════════════════════════════════════════════════════════════
+#  CONTROL ENDPOINTS — Mobile dashboard commands
+# ════════════════════════════════════════════════════════════════
+
+@app.post("/control/{key}")
+def send_control(key: str, action: dict):
+    """Mobile sends command: auto_on, auto_off, buy, sell, close_all"""
+    key = key.strip().upper()
+    licenses = load_data(DATA_FILE)
+    if key not in licenses:
+        raise HTTPException(404, "Key not found")
+    if licenses[key].get("blocked"):
+        raise HTTPException(403, "License blocked")
+
+    trades_data = load_data(TRADE_FILE)
+    if key not in trades_data:
+        trades_data[key] = {}
+
+    trades_data[key]["command"] = {
+        "action":    action.get("action", ""),
+        "lot":       action.get("lot", 0.01),
+        "timestamp": datetime.now().isoformat(),
+        "executed":  False,
+    }
+    save_data(TRADE_FILE, trades_data)
+    return {"status": "command_sent", "action": action.get("action")}
+
+@app.get("/control/{key}/pending")
+def get_pending_command(key: str):
+    """Bot polls this to check for pending commands."""
+    key = key.strip().upper()
+    trades_data = load_data(TRADE_FILE)
+    data = trades_data.get(key, {})
+    cmd  = data.get("command", {})
+    if cmd and not cmd.get("executed"):
+        return {"has_command": True, "command": cmd}
+    return {"has_command": False}
+
+@app.post("/control/{key}/executed")
+def mark_executed(key: str):
+    """Bot marks command as executed after running it."""
+    key = key.strip().upper()
+    trades_data = load_data(TRADE_FILE)
+    if key in trades_data and "command" in trades_data[key]:
+        trades_data[key]["command"]["executed"] = True
+        save_data(TRADE_FILE, trades_data)
+    return {"status": "ok"}
